@@ -23,11 +23,7 @@ import io.qameta.allure.datetime.CompositeDateTimeParser;
 import io.qameta.allure.datetime.DateTimeParser;
 import io.qameta.allure.datetime.LocalDateTimeParser;
 import io.qameta.allure.datetime.ZonedDateTimeParser;
-import io.qameta.allure.entity.LabelName;
-import io.qameta.allure.entity.StageResult;
-import io.qameta.allure.entity.Status;
-import io.qameta.allure.entity.TestResult;
-import io.qameta.allure.entity.Time;
+import io.qameta.allure.entity.*;
 import io.qameta.allure.parser.XmlElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,13 +40,8 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static io.qameta.allure.entity.LabelName.RESULT_FORMAT;
@@ -131,12 +122,12 @@ public class JunitXmlPlugin implements Reader {
             final String elementName = rootElement.getName();
 
             if (TEST_SUITE_ELEMENT_NAME.equals(elementName)) {
-                parseTestSuite(rootElement, parsedFile, context, visitor, resultsDirectory);
+                parseTestSuite(rootElement, parsedFile, context, visitor, resultsDirectory, new ArrayList<>());
                 return;
             }
             if (TEST_SUITES_ELEMENT_NAME.equals(elementName)) {
                 rootElement.get(TEST_SUITE_ELEMENT_NAME)
-                        .forEach(element -> parseTestSuite(element, parsedFile, context, visitor, resultsDirectory));
+                        .forEach(element -> parseTestSuite(element, parsedFile, context, visitor, resultsDirectory, new ArrayList<>()));
                 return;
             }
             LOGGER.debug("File {} is not a valid JUnit xml. Unknown root element {}", parsedFile, elementName);
@@ -147,7 +138,7 @@ public class JunitXmlPlugin implements Reader {
 
     private void parseTestSuite(final XmlElement testSuiteElement, final Path parsedFile,
                                 final RandomUidContext context, final ResultsVisitor visitor,
-                                final Path resultsDirectory) {
+                                final Path resultsDirectory, final List<TestSuiteInfo> acc) {
         final String name = testSuiteElement.getAttribute(NAME_ATTRIBUTE_NAME);
         final String hostname = testSuiteElement.getAttribute(HOSTNAME_ATTRIBUTE_NAME);
         final String timestamp = testSuiteElement.getAttribute(TIMESTAMP_ATTRIBUTE_NAME);
@@ -155,9 +146,15 @@ public class JunitXmlPlugin implements Reader {
                 .setName(name)
                 .setHostname(hostname)
                 .setTimestamp(getUnix(timestamp));
+        acc.add(info);
+        // Support nested suites
+        List<XmlElement> nestedSuites = testSuiteElement.get(TEST_SUITE_ELEMENT_NAME);
+        nestedSuites.forEach(suite -> parseTestSuite(suite, parsedFile, context, visitor, resultsDirectory, acc));
         testSuiteElement.get(TEST_CASE_ELEMENT_NAME)
-                .forEach(element -> parseTestCase(info, element,
+                .forEach(element -> parseTestCase(acc, element,
                         resultsDirectory, parsedFile, context, visitor));
+        // Pop info
+        acc.remove(acc.size() - 1);
     }
 
     private Long getUnix(final String timestamp) {
@@ -168,11 +165,11 @@ public class JunitXmlPlugin implements Reader {
                 .orElse(null);
     }
 
-    private void parseTestCase(final TestSuiteInfo info, final XmlElement testCaseElement, final Path resultsDirectory,
+    private void parseTestCase(final List<TestSuiteInfo> infos, final XmlElement testCaseElement, final Path resultsDirectory,
                                final Path parsedFile, final RandomUidContext context, final ResultsVisitor visitor) {
         final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
         final Status status = getStatus(testCaseElement);
-        final TestResult result = createStatuslessTestResult(info, testCaseElement, parsedFile, context);
+        final TestResult result = createStatuslessTestResult(infos, testCaseElement, parsedFile, context);
         result.setStatus(status);
         result.setFlaky(isFlaky(testCaseElement));
         setStatusDetails(result, testCaseElement);
@@ -188,7 +185,7 @@ public class JunitXmlPlugin implements Reader {
         visitor.visitTestResult(result);
 
         RETRIES.forEach((elementName, retryStatus) -> testCaseElement.get(elementName).forEach(failure -> {
-            final TestResult retried = createStatuslessTestResult(info, testCaseElement, parsedFile, context);
+            final TestResult retried = createStatuslessTestResult(infos, testCaseElement, parsedFile, context);
             retried.setHidden(true);
             retried.setStatus(retryStatus);
             retried.setStatusMessage(failure.getAttribute(MESSAGE_ATTRIBUTE_NAME));
@@ -208,10 +205,11 @@ public class JunitXmlPlugin implements Reader {
         }
     }
 
-    private TestResult createStatuslessTestResult(final TestSuiteInfo info, final XmlElement testCaseElement,
+    private TestResult createStatuslessTestResult(final List<TestSuiteInfo> infos, final XmlElement testCaseElement,
                                                   final Path parsedFile, final RandomUidContext context) {
         final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
-        final Optional<String> suiteName = firstNotNull(info.getName(), className);
+        final TestSuiteInfo info = infos.get(infos.size() - 1);
+        //final Optional<String> suiteName = firstNotNull(info.getName(), className);
         final String name = testCaseElement.getAttribute(NAME_ATTRIBUTE_NAME);
         final String historyId = String.format("%s:%s#%s", info.getName(), className, name);
         final TestResult result = new TestResult();
@@ -223,7 +221,7 @@ public class JunitXmlPlugin implements Reader {
         result.setTime(getTime(info.getTimestamp(), testCaseElement, parsedFile));
         result.addLabelIfNotExists(RESULT_FORMAT, JUNIT_RESULTS_FORMAT);
 
-        suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
+        //suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
         if (nonNull(info.getHostname())) {
             result.addLabelIfNotExists(LabelName.HOST, info.getHostname());
         }
@@ -231,6 +229,29 @@ public class JunitXmlPlugin implements Reader {
             result.addLabelIfNotExists(LabelName.TEST_CLASS, className);
             result.addLabelIfNotExists(LabelName.PACKAGE, className);
         }
+
+        if (infos.size() > 3) {
+            // not supported
+            throw new RuntimeException("Hierarchies > 3 not supported.");
+        }
+
+        if (infos.size() > 2) {
+            TestSuiteInfo sub = infos.get(2);
+            result.addLabelIfNotExists(LabelName.SUB_SUITE, sub.getName());
+        }
+        if (infos.size() > 1) {
+            TestSuiteInfo parent = infos.get(0);
+            TestSuiteInfo suite = infos.get(1);
+
+            result.addLabelIfNotExists(LabelName.PARENT_SUITE, parent.getName());
+            result.addLabelIfNotExists(LabelName.SUITE, suite.getName());
+        } else if (infos.size() > 0) {
+            final Optional<String> suiteName = firstNotNull(info.getName(), className);
+            suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
+        } else {
+            throw new RuntimeException("No suite info provided.");
+        }
+
         return result;
     }
 

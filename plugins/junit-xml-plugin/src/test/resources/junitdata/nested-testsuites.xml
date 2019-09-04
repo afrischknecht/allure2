@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+    <testsuite name="Parent" errors="0" tests="0" failures="0" time="0" timestamp="2013-05-24T10:23:58">
+        <testsuite name="Base" errors="0" tests="0" failures="0" time="0" timestamp="2013-05-24T10:23:58">
+           <testsuite name="Subsuite" errors="0" tests="0" failures="0" time="0" timestamp="2013-05-24T10:23:58">
+              <testcase classname="Subsuite.test" name="should default useDotNotation to true" time="10"/>
+           </testsuite>
+           <testcase classname="Base.test" name="should default useDotNotation to true" time="20"/>
+        </testsuite>
+       <testcase classname="Parent.test" name="should default useDotNotation to true" time="30"/>
+    </testsuite>
+</testsuites>

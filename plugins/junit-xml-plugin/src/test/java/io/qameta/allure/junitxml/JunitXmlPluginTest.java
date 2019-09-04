@@ -37,10 +37,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -225,6 +222,24 @@ class JunitXmlPluginTest {
                         "should default path to an empty string",
                         "should default consolidate to true",
                         "should default useDotNotation to true"
+                );
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldProcessNestedSuites() throws Exception {
+        process("junitdata/nested-testsuites.xml", "TEST-test.SampleTest.xml");
+        final ArgumentCaptor<TestResult> captor = ArgumentCaptor.forClass(TestResult.class);
+        verify(visitor, times(3)).visitTestResult(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(e ->
+                        tuple(e.findOneLabel(LabelName.PARENT_SUITE),
+                                e.findOneLabel(LabelName.SUITE),
+                                e.findOneLabel(LabelName.SUB_SUITE)))
+                .containsExactlyInAnyOrder(
+                        tuple(Optional.of("Parent"), Optional.of("Base"), Optional.of("Subsuite")),
+                        tuple(Optional.of("Parent"), Optional.of("Base"), Optional.empty()),
+                        tuple(Optional.empty(), Optional.of("Parent"), Optional.empty())
                 );
     }
 
