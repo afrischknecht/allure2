@@ -209,19 +209,14 @@ public class JunitXmlPlugin implements Reader {
                                                   final Path parsedFile, final RandomUidContext context) {
         final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
         final TestSuiteInfo info = infos.get(infos.size() - 1);
-        //final Optional<String> suiteName = firstNotNull(info.getName(), className);
         final String name = testCaseElement.getAttribute(NAME_ATTRIBUTE_NAME);
-        final String historyId = String.format("%s:%s#%s", info.getName(), className, name);
         final TestResult result = new TestResult();
-        if (nonNull(className) && nonNull(name)) {
-            result.setHistoryId(historyId);
-        }
+
         result.setUid(context.getValue().get());
         result.setName(isNull(name) ? "Unknown test case" : name);
         result.setTime(getTime(info.getTimestamp(), testCaseElement, parsedFile));
         result.addLabelIfNotExists(RESULT_FORMAT, JUNIT_RESULTS_FORMAT);
 
-        //suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
         if (nonNull(info.getHostname())) {
             result.addLabelIfNotExists(LabelName.HOST, info.getHostname());
         }
@@ -235,21 +230,36 @@ public class JunitXmlPlugin implements Reader {
             throw new RuntimeException("Hierarchies > 3 not supported.");
         }
 
+        StringBuilder histIdBuilder = new StringBuilder();
+        String subSuiteName = null;
         if (infos.size() > 2) {
             TestSuiteInfo sub = infos.get(2);
+            subSuiteName = sub.getName();
             result.addLabelIfNotExists(LabelName.SUB_SUITE, sub.getName());
         }
         if (infos.size() > 1) {
             TestSuiteInfo parent = infos.get(0);
             TestSuiteInfo suite = infos.get(1);
-
+            histIdBuilder.append(parent.getName()).append("::").append(suite.getName());
             result.addLabelIfNotExists(LabelName.PARENT_SUITE, parent.getName());
             result.addLabelIfNotExists(LabelName.SUITE, suite.getName());
         } else if (infos.size() > 0) {
             final Optional<String> suiteName = firstNotNull(info.getName(), className);
             suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
+            histIdBuilder.append(suiteName.get());
         } else {
             throw new RuntimeException("No suite info provided.");
+        }
+
+        if (subSuiteName != null) {
+            histIdBuilder.append("::").append(subSuiteName);
+        }
+        histIdBuilder.append(":").append(className).append("#").append(name);
+        final String historyId = histIdBuilder.toString();
+        if (isNull(className) || isNull(name)) {
+            throw new RuntimeException("Unable to construct proper history id. 'classname' or 'name' attribute missing.");
+        } else {
+            result.setHistoryId(historyId);
         }
 
         return result;

@@ -245,6 +245,21 @@ class JunitXmlPluginTest {
 
     @SuppressWarnings("unchecked")
     @Test
+    void shouldUseFullSuiteHierarchyForHistoryId() throws Exception {
+        process("junitdata/nested-testsuites.xml", "TEST-test.SampleTest.xml");
+        final ArgumentCaptor<TestResult> captor = ArgumentCaptor.forClass(TestResult.class);
+        verify(visitor, times(3)).visitTestResult(captor.capture());
+
+        assertThat(captor.getAllValues())
+                .filteredOn(e -> e.findOneLabel(LabelName.PARENT_SUITE).isPresent())
+                .filteredOn(e -> e.findOneLabel(LabelName.SUB_SUITE).isPresent())
+                .extracting(TestResult::getHistoryId)
+                .first().asString()
+                .startsWith("Parent::Base::Subsuite");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
     void shouldProcessTimestampIfPresent() throws Exception {
         process(
                 "junitdata/with-timestamp.xml", "TEST-test.SampleTest.xml"
