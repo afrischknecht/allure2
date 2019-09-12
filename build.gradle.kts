@@ -217,7 +217,7 @@ configure(subprojects) {
 
     val bintrayUpload by tasks.existing
     afterReleaseBuild {
-        dependsOn(bintrayUpload)
+        //dependsOn(bintrayUpload)
     }
 
     repositories {
