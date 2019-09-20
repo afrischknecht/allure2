@@ -303,7 +303,9 @@ public class JunitXmlPlugin implements Reader {
                 .findFirst()
                 .ifPresent(element -> {
                     //@formatter:off
-                    result.setStatusMessage(element.getAttribute(MESSAGE_ATTRIBUTE_NAME));
+                    String message = element.getAttribute(MESSAGE_ATTRIBUTE_NAME);
+                    String elementName = element.getName();
+                    result.setStatusMessage(firstNotNull(message, elementName, "details").get());
                     result.setStatusTrace(element.getValue());
                     //@formatter:on
                 });
