@@ -126,8 +126,9 @@ public class JunitXmlPlugin implements Reader {
                 return;
             }
             if (TEST_SUITES_ELEMENT_NAME.equals(elementName)) {
-                rootElement.get(TEST_SUITE_ELEMENT_NAME)
-                        .forEach(element -> parseTestSuite(element, parsedFile, context, visitor, resultsDirectory, new ArrayList<>()));
+                for (XmlElement element : rootElement.get(TEST_SUITE_ELEMENT_NAME)) {
+                    parseTestSuite(element, parsedFile, context, visitor, resultsDirectory, new ArrayList<>());
+                }
                 return;
             }
             LOGGER.debug("File {} is not a valid JUnit xml. Unknown root element {}", parsedFile, elementName);
@@ -138,7 +139,7 @@ public class JunitXmlPlugin implements Reader {
 
     private void parseTestSuite(final XmlElement testSuiteElement, final Path parsedFile,
                                 final RandomUidContext context, final ResultsVisitor visitor,
-                                final Path resultsDirectory, final List<TestSuiteInfo> acc) {
+                                final Path resultsDirectory, final List<TestSuiteInfo> acc) throws IOException {
         final String name = testSuiteElement.getAttribute(NAME_ATTRIBUTE_NAME);
         final String hostname = testSuiteElement.getAttribute(HOSTNAME_ATTRIBUTE_NAME);
         final String timestamp = testSuiteElement.getAttribute(TIMESTAMP_ATTRIBUTE_NAME);
@@ -149,10 +150,12 @@ public class JunitXmlPlugin implements Reader {
         acc.add(info);
         // Support nested suites
         List<XmlElement> nestedSuites = testSuiteElement.get(TEST_SUITE_ELEMENT_NAME);
-        nestedSuites.forEach(suite -> parseTestSuite(suite, parsedFile, context, visitor, resultsDirectory, acc));
-        testSuiteElement.get(TEST_CASE_ELEMENT_NAME)
-                .forEach(element -> parseTestCase(acc, element,
-                        resultsDirectory, parsedFile, context, visitor));
+        for (XmlElement suite : nestedSuites) {
+            parseTestSuite(suite, parsedFile, context, visitor, resultsDirectory, acc);
+        }
+        for (XmlElement element : testSuiteElement.get(TEST_CASE_ELEMENT_NAME)) {
+            parseTestCase(acc, element, resultsDirectory, parsedFile, context, visitor);
+        }
         // Pop info
         acc.remove(acc.size() - 1);
     }
@@ -166,7 +169,7 @@ public class JunitXmlPlugin implements Reader {
     }
 
     private void parseTestCase(final List<TestSuiteInfo> infos, final XmlElement testCaseElement, final Path resultsDirectory,
-                               final Path parsedFile, final RandomUidContext context, final ResultsVisitor visitor) {
+                               final Path parsedFile, final RandomUidContext context, final ResultsVisitor visitor) throws IOException {
         final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
         final Status status = getStatus(testCaseElement);
         final TestResult result = createStatuslessTestResult(infos, testCaseElement, parsedFile, context);
@@ -184,14 +187,18 @@ public class JunitXmlPlugin implements Reader {
 
         visitor.visitTestResult(result);
 
-        RETRIES.forEach((elementName, retryStatus) -> testCaseElement.get(elementName).forEach(failure -> {
-            final TestResult retried = createStatuslessTestResult(infos, testCaseElement, parsedFile, context);
-            retried.setHidden(true);
-            retried.setStatus(retryStatus);
-            retried.setStatusMessage(failure.getAttribute(MESSAGE_ATTRIBUTE_NAME));
-            retried.setStatusTrace(failure.getValue());
-            visitor.visitTestResult(retried);
-        }));
+        for (Map.Entry<String, Status> entry : RETRIES.entrySet()) {
+            String elementName = entry.getKey();
+            Status retryStatus = entry.getValue();
+            for (XmlElement failure : testCaseElement.get(elementName)) {
+                final TestResult retried = createStatuslessTestResult(infos, testCaseElement, parsedFile, context);
+                retried.setHidden(true);
+                retried.setStatus(retryStatus);
+                retried.setStatusMessage(failure.getAttribute(MESSAGE_ATTRIBUTE_NAME));
+                retried.setStatusTrace(failure.getValue());
+                visitor.visitTestResult(retried);
+            }
+        }
     }
 
     private Optional<Path> getLogFile(final Path resultsDirectory, final String className) {
@@ -206,11 +213,18 @@ public class JunitXmlPlugin implements Reader {
     }
 
     private TestResult createStatuslessTestResult(final List<TestSuiteInfo> infos, final XmlElement testCaseElement,
-                                                  final Path parsedFile, final RandomUidContext context) {
-        final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
+                                                  final Path parsedFile, final RandomUidContext context) throws IOException {
+        final String classNameElement = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
+        final String className = isNull(classNameElement) ? "classname_unknown" : classNameElement;
         final TestSuiteInfo info = infos.get(infos.size() - 1);
-        final String name = testCaseElement.getAttribute(NAME_ATTRIBUTE_NAME);
+        final String nameElement = testCaseElement.getAttribute(NAME_ATTRIBUTE_NAME);
+        final String name = isNull(nameElement) ? "name_unknown" : nameElement;
         final TestResult result = new TestResult();
+
+        if (isNull(classNameElement) && isNull(nameElement)) {
+            LOGGER.error("Neither 'classname' nor 'name' attribute set in some testcases in {}.", parsedFile.toString());
+            throw new IOException("Neither 'classname' nor 'name' attribute set in at least one testcase.");
+        }
 
         result.setUid(context.getValue().get());
         result.setName(isNull(name) ? "Unknown test case" : name);
@@ -256,11 +270,7 @@ public class JunitXmlPlugin implements Reader {
         }
         histIdBuilder.append(":").append(className).append("#").append(name);
         final String historyId = histIdBuilder.toString();
-        if (isNull(className) || isNull(name)) {
-            throw new RuntimeException("Unable to construct proper history id. 'classname' or 'name' attribute missing.");
-        } else {
-            result.setHistoryId(historyId);
-        }
+        result.setHistoryId(historyId);
 
         return result;
     }
