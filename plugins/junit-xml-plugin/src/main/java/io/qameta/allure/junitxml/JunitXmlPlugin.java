@@ -80,6 +80,7 @@ public class JunitXmlPlugin implements Reader {
     private static final String TIMESTAMP_ATTRIBUTE_NAME = "timestamp";
     private static final String STATUS_ATTRIBUTE_NAME = "status";
     private static final String SKIPPED_ATTRIBUTE_VALUE = "notrun";
+    private static final String SYSTEM_OUT_ELEMENT_NAME = "system-out";
 
     private static final String XML_GLOB = "*.xml";
 
@@ -295,7 +296,7 @@ public class JunitXmlPlugin implements Reader {
     }
 
     private void setStatusDetails(final TestResult result, final XmlElement testCaseElement) {
-        Stream.of(FAILURE_ELEMENT_NAME, ERROR_ELEMENT_NAME, SKIPPED_ELEMENT_NAME)
+        Stream.of(FAILURE_ELEMENT_NAME, ERROR_ELEMENT_NAME, SKIPPED_ELEMENT_NAME, SYSTEM_OUT_ELEMENT_NAME)
                 .filter(testCaseElement::contains)
                 .map(testCaseElement::get)
                 .filter(elements -> !elements.isEmpty())
