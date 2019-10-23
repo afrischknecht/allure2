@@ -134,7 +134,7 @@ public class SuitesPlugin extends CompositeAggregator {
                     .filter(TestResultTreeGroup.class::isInstance)
                     .map(TestResultTreeGroup.class::cast)
                     .map(WidgetAggregator::toWidgetItem)
-                    .sorted(Comparator.comparing(TreeWidgetItem::getStatistic, comparator()).reversed())
+                    .sorted(Comparator.comparing(TreeWidgetItem::getName))
                     .limit(10)
                     .collect(Collectors.toList());
             return new TreeWidgetData().setItems(items).setTotal(data.getChildren().size());
